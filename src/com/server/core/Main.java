@@ -12,31 +12,29 @@ import java.util.List;
 public class Main {
     public static void main(String[] args) {
         String configPath = "config.json";
-        String method = "GET";
-        String path = "/";
-
         if (args.length >= 1) {
             configPath = args[0];
-        }
-        if (args.length >= 2) {
-            method = args[1];
-        }
-        if (args.length >= 3) {
-            path = args[2];
         }
 
         ConfigRoot root = new ConfigParser().parse(Path.of(configPath));
         ServerConfig server = pickDefaultServer(root.getServers());
 
-        ProtocolHandler handler = new ProtocolHandler();
-        Request request = new Request(method.toUpperCase(), path);
-        Response response = handler.handle(request, server);
-
-        System.out.println("Status: " + response.getStatus());
-        if (response.getHeaders().containsKey("Allow")) {
-            System.out.println("Allow: " + response.getHeaders().get("Allow"));
+        if (args.length >= 3 && looksLikeMethod(args[1])) {
+            String method = args[1];
+            String path = args[2];
+            ProtocolHandler handler = new ProtocolHandler();
+            Request request = new Request(method.toUpperCase(), path);
+            Response response = handler.handle(request, server);
+            System.out.println("Status: " + response.getStatus());
+            if (response.getHeaders().containsKey("Allow")) {
+                System.out.println("Allow: " + response.getHeaders().get("Allow"));
+            }
+            System.out.println("Body: " + response.getBody());
+            return;
         }
-        System.out.println("Body: " + response.getBody());
+
+        HttpEngine engine = new HttpEngine(server);
+        engine.start();
     }
 
     private static ServerConfig pickDefaultServer(List<ServerConfig> servers) {
@@ -49,5 +47,13 @@ public class Main {
             }
         }
         return servers.get(0);
+    }
+
+    private static boolean looksLikeMethod(String value) {
+        if (value == null) {
+            return false;
+        }
+        String v = value.trim().toUpperCase();
+        return v.equals("GET") || v.equals("POST") || v.equals("DELETE");
     }
 }
