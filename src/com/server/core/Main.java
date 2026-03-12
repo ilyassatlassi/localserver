@@ -3,8 +3,8 @@ package com.server.core;
 import com.server.config.ConfigParser;
 import com.server.config.ConfigRoot;
 import com.server.config.ServerConfig;
-import com.server.http.ProtocolHandler;
 import com.server.http.Request;
+import com.server.http.RequestProcessor;
 import com.server.http.Response;
 import java.nio.file.Path;
 import java.util.List;
@@ -22,9 +22,9 @@ public class Main {
         if (args.length >= 3 && looksLikeMethod(args[1])) {
             String method = args[1];
             String path = args[2];
-            ProtocolHandler handler = new ProtocolHandler();
+            RequestProcessor processor = new RequestProcessor(server);
             Request request = new Request(method.toUpperCase(), path);
-            Response response = handler.handle(request, server);
+            Response response = processor.handle(request);
             System.out.println("Status: " + response.getStatus());
             if (response.getHeaders().containsKey("Allow")) {
                 System.out.println("Allow: " + response.getHeaders().get("Allow"));
