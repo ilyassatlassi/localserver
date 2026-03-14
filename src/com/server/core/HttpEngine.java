@@ -13,7 +13,9 @@ import java.nio.channels.Selector;
 import java.nio.channels.ServerSocketChannel;
 import java.nio.channels.SocketChannel;
 import java.nio.charset.StandardCharsets;
+import java.util.ArrayList;
 import java.util.Iterator;
+import java.util.List;
 import java.util.Set;
 
 public class HttpEngine {
@@ -39,11 +41,13 @@ public class HttpEngine {
                 serverChannel.configureBlocking(false);
                 serverChannel.bind(new InetSocketAddress(server.getHost(), port));
                 serverChannel.register(selector, SelectionKey.OP_ACCEPT);
+                System.out.println("[HttpEngine] Listening on " + server.getHost() + ":" + port);
+
             }
 
             while (true) {
                 selector.select(SELECT_TIMEOUT_MS);
-                checkTimeouts(selector);
+                closeTimedOutConnections(selector);
                 Set<SelectionKey> selectedKeys = selector.selectedKeys();
                 Iterator<SelectionKey> iterator = selectedKeys.iterator();
                 while (iterator.hasNext()) {
@@ -87,80 +91,119 @@ public class HttpEngine {
         SocketChannel client = (SocketChannel) key.channel();
         ConnectionState state = (ConnectionState) key.attachment();
         state.updateLastAccessedAt();
-        ByteBuffer buffer = state.getReadBuffer();
-        int read = client.read(buffer);
-        if (read == -1) {
-            client.close();
+
+        if (!readIntoState(client, state)) {
+            closeConnection(key); // EOF — client disconnected
             return;
         }
-        if (read == 0) {
-            return;
-        }
-        buffer.flip();
-        String chunk = StandardCharsets.UTF_8.decode(buffer).toString();
-        buffer.clear();
-        state.getInbound().append(chunk);
+        processAllCompleteRequests(key, state);
+
+    }
+
+    private void processAllCompleteRequests(SelectionKey key,
+            ConnectionState state) throws IOException {
         while (true) {
             HttpRequestParser.ParseResult parsed = requestParser.parse(state.getInbound());
-            if (parsed == null) {
-                return;
-            }
-            if (parsed.isTooLarge()) {
-                Response response = requestProcessor.errorResponse(413, "Payload Too Large");
-                ByteBuffer out = responseWriter.serialize(response, true);
-                state.enqueueWrite(out);
+
+            if (parsed == null)
+                break; // incomplete — wait for more data
+
+            // ── Parser detected a protocol error (400 / 405 / 413) ───────────
+            if (parsed.isError()) {
+                Response error = requestProcessor.buildErrorResponse(
+                        parsed.getErrorStatus(), parsed.getErrorMessage());
+                state.enqueueWrite(requestProcessor.serialize(error, true));
                 state.markCloseAfterWrite();
-                key.interestOps(SelectionKey.OP_WRITE);
-                return;
+                break;
             }
+
+            // ── Normal request — dispatch and enqueue response ────────────────
+            boolean closeConn = parsed.shouldClose();
             Response response = requestProcessor.handle(parsed.getRequest());
-            boolean closeAfter = parsed.shouldClose();
-            ByteBuffer out = responseWriter.serialize(response, closeAfter);
-            state.enqueueWrite(out);
-            if (closeAfter) {
+            state.enqueueWrite(requestProcessor.serialize(response, closeConn));
+
+            if (closeConn) {
                 state.markCloseAfterWrite();
+                break;
             }
+        }
+
+        if (state.hasPendingWrites()) {
             key.interestOps(SelectionKey.OP_WRITE);
         }
+    }
+
+    private boolean readIntoState(SocketChannel client, ConnectionState state) throws IOException {
+        ByteBuffer buffer = state.getReadBuffer();
+        buffer.clear();
+
+        int bytesRead = client.read(buffer);
+
+        if (bytesRead == -1)
+            return false; // EOF — client disconnected
+        if (bytesRead == 0)
+            return true; // nothing yet in non-blocking mode
+
+        buffer.flip();
+        String chunk = StandardCharsets.ISO_8859_1.decode(buffer).toString();
+        state.getInbound().append(chunk);
+        return true;
     }
 
     private void handleWrite(SelectionKey key) throws IOException {
         SocketChannel client = (SocketChannel) key.channel();
         ConnectionState state = (ConnectionState) key.attachment();
         state.updateLastAccessedAt();
-        ByteBuffer out = state.peekWriteBuffer();
-        if (out == null) {
-            client.close();
+
+        ByteBuffer current = state.peekWriteBuffer();
+        if (current == null) {
+            closeConnection(key);
             return;
         }
-        client.write(out);
-        if (!out.hasRemaining()) {
-            state.popWriteBuffer();
-            if (!state.hasPendingWrites()) {
-                if (state.shouldCloseAfterWrite()) {
-                    client.close();
-                    return;
-                }
-                key.interestOps(SelectionKey.OP_READ);
-            }
+
+        client.write(current);
+
+        if (current.hasRemaining())
+            return; // partial write — come back next event
+
+        state.popWriteBuffer();
+
+        if (state.hasPendingWrites())
+            return; // more responses queued — stay in OP_WRITE
+
+        if (state.shouldCloseAfterWrite()) {
+            closeConnection(key);
+        } else {
+            key.interestOps(SelectionKey.OP_READ); // keep-alive: wait for next request
         }
     }
 
-    private void checkTimeouts(Selector selector) {
+    // =========================================================================
+    // TIMEOUT & CONNECTION MANAGEMENT
+    // =========================================================================
+
+    /**
+     * Close every client idle longer than CONNECTION_TIMEOUT_MS.
+     * Keys collected first to avoid ConcurrentModificationException when
+     * key.cancel() modifies selector.keys() during iteration.
+     */
+    private void closeTimedOutConnections(Selector selector) {
         long now = System.currentTimeMillis();
+        List<SelectionKey> toClose = new ArrayList<>();
+
         for (SelectionKey key : selector.keys()) {
-            if (!key.isValid()) {
+            if (!key.isValid())
                 continue;
-            }
-            Object att = key.attachment();
-            if (!(att instanceof ConnectionState)) {
+            if (!(key.attachment() instanceof ConnectionState))
                 continue;
-            }
-            ConnectionState state = (ConnectionState) att;
+
+            ConnectionState state = (ConnectionState) key.attachment();
             if (now - state.getLastAccessedAt() > CONNECTION_TIMEOUT_MS) {
-                closeConnection(key);
+                toClose.add(key);
             }
         }
+
+        toClose.forEach(this::closeConnection);
     }
 
     private void closeConnection(SelectionKey key) {

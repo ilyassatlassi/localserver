@@ -23,7 +23,7 @@ public class Main {
             String method = args[1];
             String path = args[2];
             RequestProcessor processor = new RequestProcessor(server);
-            Request request = new Request(method.toUpperCase(), path);
+            Request request = new Request(method.toUpperCase(), path, null, null,null);
             Response response = processor.handle(request);
             System.out.println("Status: " + response.getStatus());
             if (response.getHeaders().containsKey("Allow")) {
