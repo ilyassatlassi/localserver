@@ -55,9 +55,27 @@ public class ProtocolHandler {
         if (resolved == null) {
             return new Response(403, "Forbidden or Bad Path");
         }
-        if (!Files.exists(resolved) || Files.isDirectory(resolved)) {
-            // Further directory logic (index.html, autoIndex) will be added here later.
+        
+        if (!Files.exists(resolved)) {
             return new Response(404, "Not Found");
+        }
+
+        if (Files.isDirectory(resolved)) {
+            String indexFileName = route.getIndex();
+            if (indexFileName != null && !indexFileName.isEmpty()) {
+                Path indexPath = resolved.resolve(indexFileName);
+                if (Files.exists(indexPath) && !Files.isDirectory(indexPath)) {
+                    resolved = indexPath;
+                } else if (route.isAutoIndex()) {
+                    return generateAutoIndex(resolved, request.getPath());
+                } else {
+                    return new Response(403, "Forbidden");
+                }
+            } else if (route.isAutoIndex()) {
+                return generateAutoIndex(resolved, request.getPath());
+            } else {
+                return new Response(403, "Forbidden");
+            }
         }
 
         try {
@@ -68,6 +86,44 @@ public class ProtocolHandler {
         } catch (java.io.IOException e) {
             return new Response(500, "Internal Server Error");
         }
+    }
+
+    private Response generateAutoIndex(Path directory, String requestPath) {
+        StringBuilder sb = new StringBuilder();
+        sb.append("<html><head><title>Index of ").append(requestPath).append("</title></head><body>");
+        sb.append("<h1>Index of ").append(requestPath).append("</h1><hr><pre>");
+        
+        if (!requestPath.equals("/")) {
+            String parentStr = requestPath;
+            if (parentStr.endsWith("/")) parentStr = parentStr.substring(0, parentStr.length() - 1);
+            int lastSlash = parentStr.lastIndexOf('/');
+            if (lastSlash >= 0) {
+                String parent = parentStr.substring(0, lastSlash + 1);
+                sb.append("<a href=\"").append(parent).append("\">../</a>\n");
+            }
+        }
+
+        try (java.nio.file.DirectoryStream<Path> stream = Files.newDirectoryStream(directory)) {
+            for (Path entry : stream) {
+                String name = entry.getFileName().toString();
+                if (Files.isDirectory(entry)) {
+                    name += "/";
+                }
+                String href = requestPath;
+                if (!href.endsWith("/")) {
+                    href += "/";
+                }
+                href += name;
+                sb.append("<a href=\"").append(href).append("\">").append(name).append("</a>\n");
+            }
+        } catch (java.io.IOException e) {
+            return new Response(500, "Error generating directory listing");
+        }
+
+        sb.append("</pre><hr></body></html>");
+        Response resp = new Response(200, sb.toString());
+        resp.setHeader("Content-Type", "text/html; charset=utf-8");
+        return resp;
     }
 
     private Response handleDelete(Request request, RouteConfig route) {
