@@ -2,6 +2,8 @@ package com.server.http;
 
 import com.server.config.RouteConfig;
 import com.server.config.ServerConfig;
+import java.nio.file.Files;
+import java.nio.file.Path;
 import java.util.Set;
 
 public class ProtocolHandler {
@@ -39,7 +41,93 @@ public class ProtocolHandler {
             return resp;
         }
 
+        if (method.equals("GET")) {
+            return handleGet(request, matched);
+        } else if (method.equals("DELETE")) {
+            return handleDelete(request, matched);
+        }
+
         return new Response(200, "OK");
+    }
+
+    private Response handleGet(Request request, RouteConfig route) {
+        Path resolved = resolveSafePath(request.getPath(), route);
+        if (resolved == null) {
+            return new Response(403, "Forbidden or Bad Path");
+        }
+        if (!Files.exists(resolved) || Files.isDirectory(resolved)) {
+            // Further directory logic (index.html, autoIndex) will be added here later.
+            return new Response(404, "Not Found");
+        }
+
+        try {
+            byte[] data = Files.readAllBytes(resolved);
+            Response resp = new Response(200, new String(data, java.nio.charset.StandardCharsets.UTF_8));
+            resp.setHeader("Content-Type", determineContentType(resolved));
+            return resp;
+        } catch (java.io.IOException e) {
+            return new Response(500, "Internal Server Error");
+        }
+    }
+
+    private Response handleDelete(Request request, RouteConfig route) {
+        Path resolved = resolveSafePath(request.getPath(), route);
+        if (resolved == null) {
+            return new Response(403, "Forbidden");
+        }
+        if (!Files.exists(resolved) || Files.isDirectory(resolved)) {
+            return new Response(404, "Not Found");
+        }
+        try {
+            Files.delete(resolved);
+            return new Response(204, "");
+        } catch (java.io.IOException e) {
+            return new Response(500, "Internal Server Error");
+        }
+    }
+
+    private Path resolveSafePath(String requestPath, RouteConfig route) {
+        String root = route.getRoot();
+        if (root == null || root.isEmpty()) {
+            return null; // Route has no root mapped
+        }
+        
+        // Match the request path against the route path prefix to find the relative part
+        String routePath = route.getPath();
+        String relativePath = "";
+        
+        if (requestPath.length() > routePath.length()) {
+            relativePath = requestPath.substring(routePath.length());
+        }
+        if (relativePath.startsWith("/")) {
+            relativePath = relativePath.substring(1);
+        }
+
+        try {
+            Path rootPath = java.nio.file.Path.of(root).toAbsolutePath().normalize();
+            Path targetPath = rootPath.resolve(relativePath).normalize();
+
+            // Directory Traversal Prevention: Ensure target is inside rootPath
+            if (!targetPath.startsWith(rootPath)) {
+                return null;
+            }
+            return targetPath;
+        } catch (java.nio.file.InvalidPathException e) {
+            return null;
+        }
+    }
+
+    private String determineContentType(Path path) {
+        String filename = path.getFileName().toString().toLowerCase();
+        if (filename.endsWith(".html") || filename.endsWith(".htm")) return "text/html; charset=utf-8";
+        if (filename.endsWith(".css")) return "text/css; charset=utf-8";
+        if (filename.endsWith(".js")) return "application/javascript; charset=utf-8";
+        if (filename.endsWith(".json")) return "application/json; charset=utf-8";
+        if (filename.endsWith(".png")) return "image/png";
+        if (filename.endsWith(".jpg") || filename.endsWith(".jpeg")) return "image/jpeg";
+        if (filename.endsWith(".gif")) return "image/gif";
+        if (filename.endsWith(".txt")) return "text/plain; charset=utf-8";
+        return "application/octet-stream";
     }
 
     private boolean pathMatches(String routePath, String requestPath) {
