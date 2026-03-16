@@ -43,6 +43,8 @@ public class ProtocolHandler {
 
         if (method.equals("GET")) {
             return handleGet(request, matched);
+        } else if (method.equals("POST")) {
+            return handlePost(request, matched);
         } else if (method.equals("DELETE")) {
             return handleDelete(request, matched);
         }
@@ -78,6 +80,11 @@ public class ProtocolHandler {
             }
         }
 
+        String cgiBinary = getCgiBinary(resolved, route);
+        if (cgiBinary != null) {
+            return executeCgi(request, resolved, cgiBinary);
+        }
+
         try {
             byte[] data = Files.readAllBytes(resolved);
             Response resp = new Response(200, new String(data, java.nio.charset.StandardCharsets.UTF_8));
@@ -86,6 +93,122 @@ public class ProtocolHandler {
         } catch (java.io.IOException e) {
             return new Response(500, "Internal Server Error");
         }
+    }
+
+    private Response handlePost(Request request, RouteConfig route) {
+        Path resolved = resolveSafePath(request.getPath(), route);
+        if (resolved == null) {
+            return new Response(403, "Forbidden or Bad Path");
+        }
+        
+        if (!Files.exists(resolved) || Files.isDirectory(resolved)) {
+            return new Response(404, "Not Found");
+        }
+
+        String cgiBinary = getCgiBinary(resolved, route);
+        if (cgiBinary != null) {
+            return executeCgi(request, resolved, cgiBinary);
+        }
+
+        // Standard POST without CGI is currently unhandled
+        return new Response(405, "Method Not Allowed");
+    }
+
+    private Response executeCgi(Request request, Path scriptPath, String binaryPath) {
+        try {
+            ProcessBuilder pb = new ProcessBuilder(binaryPath, scriptPath.toAbsolutePath().toString());
+            
+            // Set CGI Environment Variables (RFC 3875)
+            java.util.Map<String, String> env = pb.environment();
+            env.clear(); // Ensure clean environment
+            env.put("REQUEST_METHOD", request.getMethod());
+            env.put("PATH_INFO", request.getPath());
+            env.put("QUERY_STRING", request.getQueryString() != null ? request.getQueryString() : "");
+            
+            if (request.getBody() != null && !request.getBody().isEmpty()) {
+                byte[] bodyBytes = request.getBody().getBytes(java.nio.charset.StandardCharsets.UTF_8);
+                env.put("CONTENT_LENGTH", String.valueOf(bodyBytes.length));
+            }
+            
+            String contentType = request.getHeaders().get("content-type");
+            if (contentType != null) {
+                env.put("CONTENT_TYPE", contentType);
+            }
+            
+            String cookie = request.getHeaders().get("cookie");
+            if (cookie != null) {
+                env.put("HTTP_COOKIE", cookie);
+            }
+
+            Process process = pb.start();
+
+            // Pipe HTTP Body into script standard input
+            if (request.getBody() != null && !request.getBody().isEmpty()) {
+                try (java.io.OutputStream os = process.getOutputStream()) {
+                    os.write(request.getBody().getBytes(java.nio.charset.StandardCharsets.UTF_8));
+                    os.flush();
+                }
+            } else {
+                process.getOutputStream().close();
+            }
+
+            // Read CGI execution standard output
+            byte[] outputBytes = process.getInputStream().readAllBytes();
+            
+            // Optional: log errors from standard error here
+            // byte[] errorBytes = process.getErrorStream().readAllBytes();
+            
+            int exitCode = process.waitFor();
+            if (exitCode != 0) {
+                return new Response(500, "CGI Process exited with error code: " + exitCode);
+            }
+
+            return parseCgiResponse(outputBytes);
+
+        } catch (Exception e) {
+            e.printStackTrace();
+            return new Response(500, "Internal Server Error: " + e.getMessage());
+        }
+    }
+
+    private Response parseCgiResponse(byte[] outputBytes) {
+        String output = new String(outputBytes, java.nio.charset.StandardCharsets.UTF_8);
+        int headerEndIndex = output.indexOf("\r\n\r\n");
+        if (headerEndIndex == -1) {
+            // No headers detected, dump as plain body
+            return new Response(200, output);
+        }
+
+        String headersPart = output.substring(0, headerEndIndex);
+        String bodyPart = output.substring(headerEndIndex + 4);
+
+        Response response = new Response(200, bodyPart);
+        for (String line : headersPart.split("\r\n")) {
+            int colonIndex = line.indexOf(':');
+            if (colonIndex > 0) {
+                String key = line.substring(0, colonIndex).trim();
+                String val = line.substring(colonIndex + 1).trim();
+                if (key.equalsIgnoreCase("Status")) {
+                    try {
+                        response = new Response(Integer.parseInt(val.split(" ")[0]), bodyPart);
+                    } catch (NumberFormatException ignored) {}
+                } else {
+                    response.setHeader(key, val);
+                }
+            }
+        }
+        return response;
+    }
+
+    private String getCgiBinary(Path resolved, RouteConfig route) {
+        if (route.getCgi() == null || route.getCgi().isEmpty()) return null;
+        String filename = resolved.getFileName().toString();
+        for (java.util.Map.Entry<String, String> entry : route.getCgi().entrySet()) {
+            if (filename.endsWith(entry.getKey())) {
+                return entry.getValue();
+            }
+        }
+        return null;
     }
 
     private Response generateAutoIndex(Path directory, String requestPath) {
