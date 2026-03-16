@@ -34,11 +34,10 @@ import java.util.Set;
 public class HttpRequestParser {
 
     private static final String HEADER_END = "\r\n\r\n";
-    private static final String CRLF       = "\r\n";
+    private static final String CRLF = "\r\n";
 
     /** HTTP/1.1 methods this server supports. */
-    private static final Set<String> SUPPORTED_METHODS =
-            Set.of("GET", "POST", "DELETE");
+    private static final Set<String> SUPPORTED_METHODS = Set.of("GET", "POST", "DELETE");
 
     // -------------------------------------------------------------------------
     // Fields
@@ -65,7 +64,8 @@ public class HttpRequestParser {
     /**
      * Attempt to parse the next complete HTTP/1.1 request from {@code inbound}.
      *
-     * <p>The buffer is decoded with ISO-8859-1 (in {@code HttpEngine}), which
+     * <p>
+     * The buffer is decoded with ISO-8859-1 (in {@code HttpEngine}), which
      * keeps every byte value 0–255 intact through the String round-trip. Body
      * bytes can therefore be recovered losslessly.
      *
@@ -76,15 +76,17 @@ public class HttpRequestParser {
     public ParseResult parse(StringBuilder inbound) {
 
         // ── Guard ─────────────────────────────────────────────────────────────
-        if (inbound == null || inbound.isEmpty()) return null;
+        if (inbound == null || inbound.isEmpty())
+            return null;
 
         // ── Step 1: wait for end of headers ───────────────────────────────────
         int headerEndIdx = inbound.indexOf(HEADER_END);
-        if (headerEndIdx < 0) return null; // headers not fully received yet
+        if (headerEndIdx < 0)
+            return null; // headers not fully received yet
 
         // ── Step 2: parse the request line ────────────────────────────────────
-        String   headersBlock = inbound.substring(0, headerEndIdx);
-        String[] lines        = headersBlock.split(CRLF, -1);
+        String headersBlock = inbound.substring(0, headerEndIdx);
+        String[] lines = headersBlock.split(CRLF, -1);
 
         if (lines.length == 0 || lines[0].isBlank()) {
             consumeBytes(inbound, headerEndIdx + HEADER_END.length());
@@ -97,7 +99,7 @@ public class HttpRequestParser {
             return ParseResult.badRequest("Malformed request line: " + lines[0]);
         }
 
-        String method  = requestLineParts[0].trim().toUpperCase(Locale.ROOT);
+        String method = requestLineParts[0].trim().toUpperCase(Locale.ROOT);
         String rawPath = requestLineParts[1].trim();
         String version = requestLineParts[2].trim().toUpperCase(Locale.ROOT);
 
@@ -124,13 +126,21 @@ public class HttpRequestParser {
         }
 
         // ── Step 7: split path and query string ───────────────────────────────
-        String path        = stripQueryString(rawPath);
+        String path = stripQueryString(rawPath);
         String queryString = extractQueryString(rawPath);
 
         // ── Step 8: resolve body length ───────────────────────────────────────
         String transferEncoding = headers.get("transfer-encoding");
         boolean isChunked = "chunked".equalsIgnoreCase(transferEncoding);
+        boolean hasContentLength = headers.containsKey("content-length");
 
+        // ── Step 10: 411 Length Required — POST/PUT without body framing ──────
+        // RFC 7231 §6.5.10: server MAY send 411 when it requires a
+        // Content-Length and the request does not supply one.
+        if (method.equals("POST") && !isChunked && !hasContentLength) {
+            consumeBytes(inbound, headerEndIdx + HEADER_END.length());
+            return ParseResult.lengthRequired(method);
+        }
         if (isChunked) {
             return parseChunkedBody(
                     inbound, headerEndIdx, method, path, queryString, headers);
@@ -148,15 +158,24 @@ public class HttpRequestParser {
         }
 
         // ── Step 11: wait until the full body has arrived ─────────────────────
-        int bodyStart  = headerEndIdx + HEADER_END.length();
+        int bodyStart = headerEndIdx + HEADER_END.length();
         long totalBytes = bodyStart + contentLength;
 
-        if (inbound.length() < totalBytes) return null; // need more data
+        if (inbound.length() < totalBytes)
+            return null; // need more data
 
+        // GET/HEAD/DELETE/OPTIONS: consume the bytes but pass "" to handler.
+        // POST/PUT: consume the bytes and pass real body.
+        String body;
+        if (method.equals("GET") || method.equals("DELETE") || contentLength == 0) {
+            body = ""; // discard — RFC says body has no meaning for this method
+        } else {
+            body = inbound.substring(bodyStart, (int) totalBytes);
+        }
         // ── Step 12: extract body ─────────────────────────────────────────────
-        String body = contentLength > 0
-                ? inbound.substring(bodyStart, (int) totalBytes)
-                : "";
+        // String body = contentLength > 0
+        // ? inbound.substring(bodyStart, (int) totalBytes)
+        // : "";
 
         // ── Step 13: consume exactly this request's bytes ─────────────────────
         consumeBytes(inbound, (int) totalBytes);
@@ -178,6 +197,7 @@ public class HttpRequestParser {
      * Parse a chunked Transfer-Encoding body (RFC 7230 §4.1).
      *
      * Chunked format:
+     * 
      * <pre>
      *   {hex-size}\r\n
      *   {chunk-data}\r\n
@@ -189,11 +209,11 @@ public class HttpRequestParser {
      * Returns {@code null} if the full chunked body has not arrived yet.
      */
     private ParseResult parseChunkedBody(StringBuilder inbound,
-                                         int           headerEndIdx,
-                                         String        method,
-                                         String        path,
-                                         String        queryString,
-                                         Map<String, String> headers) {
+            int headerEndIdx,
+            String method,
+            String path,
+            String queryString,
+            Map<String, String> headers) {
         int bodyStart = headerEndIdx + HEADER_END.length();
         StringBuilder bodyBuilder = new StringBuilder();
         int pos = bodyStart;
@@ -201,13 +221,15 @@ public class HttpRequestParser {
         while (true) {
             // Find the end of the chunk-size line
             int lineEnd = indexOf(inbound, CRLF, pos);
-            if (lineEnd < 0) return null; // chunk size line not yet arrived
+            if (lineEnd < 0)
+                return null; // chunk size line not yet arrived
 
             String chunkSizeLine = inbound.substring(pos, lineEnd).trim();
 
             // Chunk extensions (after ';') are allowed by spec — strip them
             int semicolon = chunkSizeLine.indexOf(';');
-            if (semicolon >= 0) chunkSizeLine = chunkSizeLine.substring(0, semicolon).trim();
+            if (semicolon >= 0)
+                chunkSizeLine = chunkSizeLine.substring(0, semicolon).trim();
 
             int chunkSize;
             try {
@@ -226,7 +248,8 @@ public class HttpRequestParser {
             if (chunkSize == 0) {
                 // After the 0\r\n there must be a final \r\n
                 int trailerEnd = indexOf(inbound, CRLF, lineEnd + CRLF.length());
-                if (trailerEnd < 0) return null; // final CRLF not yet arrived
+                if (trailerEnd < 0)
+                    return null; // final CRLF not yet arrived
 
                 // Enforce body size limit on reassembled body
                 if (bodyBuilder.length() > maxBodyBytes) {
@@ -238,17 +261,23 @@ public class HttpRequestParser {
                 consumeBytes(inbound, trailerEnd + CRLF.length());
 
                 boolean shouldClose = shouldClose(headers);
+
+                // GET/HEAD/DELETE/OPTIONS: body has no defined meaning — discard.
+                // POST/PUT: body is the actual payload — forward to handler.
+                boolean discardBody = method.equals("GET") || method.equals("DELETE");
+                String finalBody = discardBody ? "" : bodyBuilder.toString();
                 Request request = new Request(
-                        method, path, queryString, headers, bodyBuilder.toString());
+                        method, path, queryString, headers, finalBody);
                 return ParseResult.complete(request, shouldClose);
             }
 
             // Data chunk: need chunkSize bytes + trailing \r\n
             int dataStart = lineEnd + CRLF.length();
-            int dataEnd   = dataStart + chunkSize;
-            int crlfEnd   = dataEnd + CRLF.length();
+            int dataEnd = dataStart + chunkSize;
+            int crlfEnd = dataEnd + CRLF.length();
 
-            if (inbound.length() < crlfEnd) return null; // chunk data not yet arrived
+            if (inbound.length() < crlfEnd)
+                return null; // chunk data not yet arrived
 
             // Enforce size limit incrementally
             if (bodyBuilder.length() + chunkSize > maxBodyBytes) {
@@ -275,12 +304,14 @@ public class HttpRequestParser {
 
         for (int i = 1; i < lines.length; i++) {
             String line = lines[i];
-            if (line.isBlank()) continue;
+            if (line.isBlank())
+                continue;
 
             int colonIdx = line.indexOf(':');
-            if (colonIdx <= 0) continue; // skip malformed lines silently
+            if (colonIdx <= 0)
+                continue; // skip malformed lines silently
 
-            String name  = line.substring(0, colonIdx).trim().toLowerCase(Locale.ROOT);
+            String name = line.substring(0, colonIdx).trim().toLowerCase(Locale.ROOT);
             String value = line.substring(colonIdx + 1).trim();
 
             // RFC 7230: multiple headers with the same name → combine with ", "
@@ -300,7 +331,8 @@ public class HttpRequestParser {
      * Returns 0 for missing, blank, or non-numeric values.
      */
     private long parseContentLength(String value) {
-        if (value == null || value.isBlank()) return 0;
+        if (value == null || value.isBlank())
+            return 0;
         try {
             return Math.max(Long.parseLong(value.trim()), 0);
         } catch (NumberFormatException ex) {
@@ -340,10 +372,10 @@ public class HttpRequestParser {
      */
     private int indexOf(StringBuilder sb, String target, int fromIndex) {
         int limit = sb.length() - target.length();
-        outer:
-        for (int i = Math.max(fromIndex, 0); i <= limit; i++) {
+        outer: for (int i = Math.max(fromIndex, 0); i <= limit; i++) {
             for (int j = 0; j < target.length(); j++) {
-                if (sb.charAt(i + j) != target.charAt(j)) continue outer;
+                if (sb.charAt(i + j) != target.charAt(j))
+                    continue outer;
             }
             return i;
         }
@@ -358,6 +390,7 @@ public class HttpRequestParser {
      * The outcome of one parse attempt.
      *
      * Uses named factory methods so call sites are self-documenting:
+     * 
      * <pre>
      *   ParseResult.complete(request, shouldClose)
      *   ParseResult.badRequest("reason")
@@ -372,20 +405,20 @@ public class HttpRequestParser {
 
         // ── Fields ────────────────────────────────────────────────────────────
 
-        private final Request request;      // null on error
-        private final boolean shouldClose;  // send Connection: close?
-        private final int     errorStatus;  // 0 = success, 400/405/413 = error
-        private final String  errorMessage; // human-readable reason, or null
+        private final Request request; // null on error
+        private final boolean shouldClose; // send Connection: close?
+        private final int errorStatus; // 0 = success, 400/405/413 = error
+        private final String errorMessage; // human-readable reason, or null
 
         // ── Private constructor ───────────────────────────────────────────────
 
         private ParseResult(Request request,
-                            boolean shouldClose,
-                            int     errorStatus,
-                            String  errorMessage) {
-            this.request      = request;
-            this.shouldClose  = shouldClose;
-            this.errorStatus  = errorStatus;
+                boolean shouldClose,
+                int errorStatus,
+                String errorMessage) {
+            this.request = request;
+            this.shouldClose = shouldClose;
+            this.errorStatus = errorStatus;
             this.errorMessage = errorMessage;
         }
 
@@ -424,27 +457,45 @@ public class HttpRequestParser {
         // ── Accessors ─────────────────────────────────────────────────────────
 
         /** The parsed request. {@code null} when {@link #isError()} is true. */
-        public Request getRequest() { return request; }
+        public Request getRequest() {
+            return request;
+        }
 
         /** True if the connection must close after the response is sent. */
-        public boolean shouldClose() { return shouldClose; }
+        public boolean shouldClose() {
+            return shouldClose;
+        }
 
         /** True if the parse produced an HTTP error (400 / 405 / 413). */
-        public boolean isError() { return errorStatus != 0; }
+        public boolean isError() {
+            return errorStatus != 0;
+        }
+
+        public static ParseResult lengthRequired(String method) {
+            return new ParseResult(null, true, 411,
+                    method + " request must include Content-Length or "
+                            + "Transfer-Encoding: chunked");
+        }
 
         /**
          * HTTP status code for error results (400, 405, 413).
          * Returns 0 for successful parses — always check {@link #isError()} first.
          */
-        public int getErrorStatus() { return errorStatus; }
+        public int getErrorStatus() {
+            return errorStatus;
+        }
 
         /** Human-readable error reason, or {@code null} on success. */
-        public String getErrorMessage() { return errorMessage; }
+        public String getErrorMessage() {
+            return errorMessage;
+        }
 
         // ── Convenience shorthands kept for backwards compatibility ───────────
 
         /** @deprecated Use {@code isError() && getErrorStatus() == 413} */
         @Deprecated
-        public boolean isTooLarge() { return errorStatus == 413; }
+        public boolean isTooLarge() {
+            return errorStatus == 413;
+        }
     }
 }
