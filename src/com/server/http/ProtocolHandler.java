@@ -97,21 +97,67 @@ public class ProtocolHandler {
 
     private Response handlePost(Request request, RouteConfig route) {
         Path resolved = resolveSafePath(request.getPath(), route);
-        if (resolved == null) {
-            return new Response(403, "Forbidden or Bad Path");
+        if (resolved != null && Files.exists(resolved) && !Files.isDirectory(resolved)) {
+            String cgiBinary = getCgiBinary(resolved, route);
+            if (cgiBinary != null) {
+                return executeCgi(request, resolved, cgiBinary);
+            }
+        }
+
+        Path uploadPath = resolveUploadPath(request.getPath(), route);
+        if (uploadPath != null) {
+            try {
+                Path parent = uploadPath.getParent();
+                if (parent != null && !Files.exists(parent)) {
+                    Files.createDirectories(parent);
+                }
+                
+                String body = request.getBody();
+                if (body != null) {
+                    Files.write(uploadPath, body.getBytes(java.nio.charset.StandardCharsets.UTF_8));
+                } else {
+                    Files.write(uploadPath, new byte[0]);
+                }
+                return new Response(201, "Created");
+            } catch (java.io.IOException e) {
+                return new Response(500, "Failed to upload file");
+            }
+        }
+
+        return new Response(405, "Method Not Allowed");
+    }
+    
+    private Path resolveUploadPath(String requestPath, RouteConfig route) {
+        String uploadDir = route.getUploadDir();
+        if (uploadDir == null || uploadDir.isEmpty()) {
+            return null; // Route doesn't support uploads
         }
         
-        if (!Files.exists(resolved) || Files.isDirectory(resolved)) {
-            return new Response(404, "Not Found");
+        String routePath = route.getPath();
+        String relativePath = "";
+        
+        if (requestPath.length() > routePath.length()) {
+            relativePath = requestPath.substring(routePath.length());
+        }
+        if (relativePath.startsWith("/")) {
+            relativePath = relativePath.substring(1);
         }
 
-        String cgiBinary = getCgiBinary(resolved, route);
-        if (cgiBinary != null) {
-            return executeCgi(request, resolved, cgiBinary);
+        if (relativePath.isEmpty()) {
+            relativePath = "upload_" + System.currentTimeMillis() + ".tmp";
         }
 
-        // Standard POST without CGI is currently unhandled
-        return new Response(405, "Method Not Allowed");
+        try {
+            Path rootPath = java.nio.file.Path.of(uploadDir).toAbsolutePath().normalize();
+            Path targetPath = rootPath.resolve(relativePath).normalize();
+
+            if (!targetPath.startsWith(rootPath)) {
+                return null; // Traversal Attempt
+            }
+            return targetPath;
+        } catch (java.nio.file.InvalidPathException e) {
+            return null;
+        }
     }
 
     private Response executeCgi(Request request, Path scriptPath, String binaryPath) {
