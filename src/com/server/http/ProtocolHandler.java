@@ -33,6 +33,12 @@ public class ProtocolHandler {
             return new Response(404, "Not Found");
         }
 
+        if (matched.getRedirect() != null) {
+            Response redirectResponse = new Response(matched.getRedirect().getStatus(), "Moved");
+            redirectResponse.setHeader("Location", matched.getRedirect().getTo());
+            return redirectResponse;
+        }
+
         String method = request.getMethod();
         Set<String> allowed = matched.getMethods();
         if (!allowed.isEmpty() && (method == null || !allowed.contains(method))) {
