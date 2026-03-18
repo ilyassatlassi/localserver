@@ -8,10 +8,15 @@ import java.util.Set;
 
 public class ProtocolHandler {
 
+    private final SessionManager sessionManager = new SessionManager();
+
     public Response handle(Request request, ServerConfig server) {
         if (request == null || server == null) {
             return new Response(500, "Internal Server Error");
         }
+
+        boolean isNewSession = !sessionManager.hasValidSession(request);
+        String sessionId = sessionManager.getOrCreateSession(request);
 
         RouteConfig matched = null;
         int bestLen = -1;
@@ -30,13 +35,13 @@ public class ProtocolHandler {
         }
 
         if (matched == null) {
-            return new Response(404, "Not Found");
+            return attachSession(new Response(404, "Not Found"), sessionId, isNewSession);
         }
 
         if (matched.getRedirect() != null) {
             Response redirectResponse = new Response(matched.getRedirect().getStatus(), "Moved");
             redirectResponse.setHeader("Location", matched.getRedirect().getTo());
-            return redirectResponse;
+            return attachSession(redirectResponse, sessionId, isNewSession);
         }
 
         String method = request.getMethod();
@@ -44,18 +49,28 @@ public class ProtocolHandler {
         if (!allowed.isEmpty() && (method == null || !allowed.contains(method))) {
             Response resp = new Response(405, "Method Not Allowed");
             resp.setHeader("Allow", String.join(", ", allowed));
-            return resp;
+            return attachSession(resp, sessionId, isNewSession);
         }
 
+        Response response;
         if (method.equals("GET")) {
-            return handleGet(request, matched);
+            response = handleGet(request, matched);
         } else if (method.equals("POST")) {
-            return handlePost(request, matched);
+            response = handlePost(request, matched);
         } else if (method.equals("DELETE")) {
-            return handleDelete(request, matched);
+            response = handleDelete(request, matched);
+        } else {
+            response = new Response(200, "OK");
         }
 
-        return new Response(200, "OK");
+        return attachSession(response, sessionId, isNewSession);
+    }
+
+    private Response attachSession(Response response, String sessionId, boolean isNewSession) {
+        if (isNewSession) {
+            response.setHeader("Set-Cookie", sessionManager.buildSetCookieHeader(sessionId));
+        }
+        return response;
     }
 
     private Response handleGet(Request request, RouteConfig route) {
