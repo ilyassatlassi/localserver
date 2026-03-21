@@ -2,7 +2,7 @@ package com.server.core;
 
 import com.server.config.ServerConfig;
 import com.server.http.HttpRequestParser;
-import com.server.http.HttpResponseWriter;
+// import com.server.http.HttpResponseWriter;
 import com.server.http.RequestProcessor;
 import com.server.http.Response;
 import java.io.IOException;
@@ -25,13 +25,13 @@ public class HttpEngine {
     private final ServerConfig server;
     private final HttpRequestParser requestParser;
     private final RequestProcessor requestProcessor;
-    private final HttpResponseWriter responseWriter;
+    // private final HttpResponseWriter responseWriter;
 
     public HttpEngine(ServerConfig server) {
         this.server = server;
         this.requestParser = new HttpRequestParser(server.getClientBodyLimitBytes());
         this.requestProcessor = new RequestProcessor(server);
-        this.responseWriter = new HttpResponseWriter();
+        // this.responseWriter = new HttpResponseWriter();
     }
 
     public void start() {
