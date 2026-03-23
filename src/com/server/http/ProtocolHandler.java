@@ -108,7 +108,7 @@ public class ProtocolHandler {
 
         try {
             byte[] data = Files.readAllBytes(resolved);
-            Response resp = new Response(200, new String(data, java.nio.charset.StandardCharsets.UTF_8));
+            Response resp = new Response(200, data);
             resp.setHeader("Content-Type", determineContentType(resolved));
             return resp;
         } catch (java.io.IOException e) {
@@ -221,9 +221,6 @@ public class ProtocolHandler {
 
             // Read CGI execution standard output
             byte[] outputBytes = process.getInputStream().readAllBytes();
-            
-            // Optional: log errors from standard error here
-            // byte[] errorBytes = process.getErrorStream().readAllBytes();
             
             int exitCode = process.waitFor();
             if (exitCode != 0) {

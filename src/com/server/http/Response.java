@@ -14,7 +14,7 @@ import java.util.Map;
 public class Response {
 
     private int                    status;
-    private String                 body;
+    private byte[]                 bodyBytes;
     private final Map<String, String> headers = new LinkedHashMap<>();
 
     // -------------------------------------------------------------------------
@@ -27,7 +27,12 @@ public class Response {
 
     public Response(int status, String body) {
         this.status = status;
-        this.body   = body != null ? body : "";
+        setBody(body);
+    }
+
+    public Response(int status, byte[] bodyBytes) {
+        this.status = status;
+        setBodyBytes(bodyBytes);
     }
 
     // -------------------------------------------------------------------------
@@ -47,11 +52,23 @@ public class Response {
     // -------------------------------------------------------------------------
 
     public String getBody() {
-        return body;
+        return bodyBytes == null ? "" : new String(bodyBytes, java.nio.charset.StandardCharsets.UTF_8);
     }
 
     public void setBody(String body) {
-        this.body = body != null ? body : "";
+        if (body == null) {
+            this.bodyBytes = new byte[0];
+        } else {
+            this.bodyBytes = body.getBytes(java.nio.charset.StandardCharsets.UTF_8);
+        }
+    }
+
+    public byte[] getBodyBytes() {
+        return bodyBytes != null ? bodyBytes : new byte[0];
+    }
+
+    public void setBodyBytes(byte[] bodyBytes) {
+        this.bodyBytes = bodyBytes != null ? bodyBytes : new byte[0];
     }
 
     // -------------------------------------------------------------------------

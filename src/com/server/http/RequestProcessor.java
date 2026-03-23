@@ -67,7 +67,13 @@ public class RequestProcessor {
         if (request == null) {
             return buildErrorResponse(400, "Bad Request");
         }
-        return handler.handle(request, server);
+        Response response = handler.handle(request, server);
+        if (response.getStatus() >= 400) {
+            String body = resolveErrorBody(response.getStatus(), response.getBody());
+            response.setBody(body);
+            response.setHeader("Content-Type", "text/html; charset=utf-8");
+        }
+        return response;
     }
 
     // =========================================================================
@@ -132,8 +138,7 @@ public class RequestProcessor {
      *                        false → emit "Connection: keep-alive"
      */
     public ByteBuffer serialize(Response response, boolean closeAfterWrite) {
-        String body      = response.getBody() != null ? response.getBody() : "";
-        byte[] bodyBytes = body.getBytes(StandardCharsets.UTF_8);
+        byte[] bodyBytes = response.getBodyBytes();
 
         StringBuilder sb = new StringBuilder(256);
 
