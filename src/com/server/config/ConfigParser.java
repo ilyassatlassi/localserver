@@ -35,15 +35,19 @@ public class ConfigParser {
         List<Object> serverObjs = asList(serversVal, "servers");
         List<ServerConfig> servers = new ArrayList<>();
         for (Object obj : serverObjs) {
-            Map<?, ?> map = asMap(obj, "server");
-            String name = asString(map.get("name"), "server.name", true);
-            String host = asString(map.get("host"), "server.host", true);
-            List<Integer> ports = parsePorts(map.get("ports"));
-            boolean isDefault = asBoolean(map.get("default"), "server.default", false);
-            long bodyLimit = asLong(map.get("clientBodyLimitBytes"), "server.clientBodyLimitBytes", DEFAULT_BODY_LIMIT);
-            Map<Integer, String> errorPages = parseErrorPages(map.get("errorPages"));
-            List<RouteConfig> routes = parseRoutes(map.get("routes"));
-            servers.add(new ServerConfig(name, host, ports, isDefault, bodyLimit, errorPages, routes));
+            try {
+                Map<?, ?> map = asMap(obj, "server");
+                String name = asString(map.get("name"), "server.name", true);
+                String host = asString(map.get("host"), "server.host", true);
+                List<Integer> ports = parsePorts(map.get("ports"));
+                boolean isDefault = asBoolean(map.get("default"), "server.default", false);
+                long bodyLimit = asLong(map.get("clientBodyLimitBytes"), "server.clientBodyLimitBytes", DEFAULT_BODY_LIMIT);
+                Map<Integer, String> errorPages = parseErrorPages(map.get("errorPages"));
+                List<RouteConfig> routes = parseRoutes(map.get("routes"));
+                servers.add(new ServerConfig(name, host, ports, isDefault, bodyLimit, errorPages, routes));
+            } catch (ConfigException ex) {
+                System.err.println("[ConfigParser] Skipping invalid server config: " + ex.getMessage());
+            }
         }
         return servers;
     }

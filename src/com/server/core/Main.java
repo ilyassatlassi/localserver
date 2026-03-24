@@ -2,19 +2,14 @@ package com.server.core;
 
 import com.server.config.ConfigParser;
 import com.server.config.ConfigRoot;
-import com.server.config.ServerConfig;
-import com.server.http.Request;
-import com.server.http.RequestProcessor;
-import com.server.http.Response;
 import java.nio.file.Path;
-import java.util.List;
 
 public class Main {
     public static void main(String[] args) {
         try {
             String configPath = parseConfigPath(args);
             ConfigRoot root = new ConfigParser().parse(Path.of(configPath));
-            startAllServers(root.getServers());
+            startServer(root);
         } catch (Exception e) {
             System.err.println("Error starting server: " + e.getMessage());
             e.printStackTrace();
@@ -30,15 +25,10 @@ public class Main {
         return args[1];
     }
 
-    private static void startAllServers(List<ServerConfig> servers) {
-        if (servers == null || servers.isEmpty()) {
+    private static void startServer(ConfigRoot root) {
+        if (root == null || root.getServers() == null || root.getServers().isEmpty()) {
             throw new IllegalStateException("No servers configured");
         }
-        for (ServerConfig server : servers) {
-            Thread t = new Thread(() -> new HttpEngine(server).start());
-            t.setName("HttpEngine-" + server.getName());
-            t.setDaemon(false);
-            t.start();
-        }
+        new HttpEngine(root.getServers()).start();
     }
 }
