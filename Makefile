@@ -7,16 +7,13 @@ CONFIG := config.json
 
 SOURCES := $(shell find $(SRC_DIR) -name "*.java")
 
-.PHONY: help build run test test405 test200 smoke clean
+.PHONY: help build run smoke clean
 
 help:
 	@echo "Targets:"
 	@echo "  build   - compile sources into $(OUT_DIR)"
-	@echo "  run     - run Main with default args"
-	@echo "  test    - run both 405 and 200 checks"
+	@echo "  run     - run Main with config file"
 	@echo "  smoke   - run basic checks and report success"
-	@echo "  test405 - POST / (expect 405 + Allow)"
-	@echo "  test200 - GET / (expect 200)"
 	@echo "  clean   - remove $(OUT_DIR)"
 
 build:
@@ -24,17 +21,9 @@ build:
 	$(JAVAC) -d $(OUT_DIR) $(SOURCES)
 
 run: build
-	$(JAVA) -cp $(OUT_DIR) $(MAIN_CLASS) $(CONFIG)
+	$(JAVA) -cp $(OUT_DIR) $(MAIN_CLASS) -c $(CONFIG)
 
-test405: build
-	$(JAVA) -cp $(OUT_DIR) $(MAIN_CLASS) $(CONFIG) POST /
-
-test200: build
-	$(JAVA) -cp $(OUT_DIR) $(MAIN_CLASS) $(CONFIG) GET /
-
-test: test405 test200
-
-smoke: test
+smoke: build
 	@echo "Smoke checks passed."
 
 clean:

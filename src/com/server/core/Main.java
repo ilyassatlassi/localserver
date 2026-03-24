@@ -11,49 +11,34 @@ import java.util.List;
 
 public class Main {
     public static void main(String[] args) {
-        String configPath = "config.json";
-        if (args.length >= 1) {
-            configPath = args[0];
+        try {
+            String configPath = parseConfigPath(args);
+            ConfigRoot root = new ConfigParser().parse(Path.of(configPath));
+            startAllServers(root.getServers());
+        } catch (Exception e) {
+            System.err.println("Error starting server: " + e.getMessage());
+            e.printStackTrace();
+            System.exit(1);
         }
-
-        ConfigRoot root = new ConfigParser().parse(Path.of(configPath));
-        ServerConfig server = pickDefaultServer(root.getServers());
-
-        if (args.length >= 3 && looksLikeMethod(args[1])) {
-            String method = args[1];
-            String path = args[2];
-            RequestProcessor processor = new RequestProcessor(server);
-            Request request = new Request(method.toUpperCase(), path, null, null,null);
-            Response response = processor.handle(request);
-            System.out.println("Status: " + response.getStatus());
-            if (response.getHeaders().containsKey("Allow")) {
-                System.out.println("Allow: " + response.getHeaders().get("Allow"));
-            }
-            System.out.println("Body: " + response.getBody());
-            return;
-        }
-
-        HttpEngine engine = new HttpEngine(server);
-        engine.start();
     }
 
-    private static ServerConfig pickDefaultServer(List<ServerConfig> servers) {
+    private static String parseConfigPath(String[] args) {
+        if (args.length != 2 || !"-c".equals(args[0])) {
+            System.err.println("Usage: java -jar myserver.jar -c <config-file>");
+            System.exit(1);
+        }
+        return args[1];
+    }
+
+    private static void startAllServers(List<ServerConfig> servers) {
         if (servers == null || servers.isEmpty()) {
             throw new IllegalStateException("No servers configured");
         }
         for (ServerConfig server : servers) {
-            if (server.isDefault()) {
-                return server;
-            }
+            Thread t = new Thread(() -> new HttpEngine(server).start());
+            t.setName("HttpEngine-" + server.getName());
+            t.setDaemon(false);
+            t.start();
         }
-        return servers.get(0);
-    }
-
-    private static boolean looksLikeMethod(String value) {
-        if (value == null) {
-            return false;
-        }
-        String v = value.trim().toUpperCase();
-        return v.equals("GET") || v.equals("POST") || v.equals("DELETE");
     }
 }
