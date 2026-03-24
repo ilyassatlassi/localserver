@@ -35,21 +35,21 @@ public class RequestProcessor {
     // Fields
     // -------------------------------------------------------------------------
 
-    private final ServerConfig    server;
+    private final java.util.List<ServerConfig> servers;
     private final ProtocolHandler handler;
 
     // -------------------------------------------------------------------------
     // Constructors
     // -------------------------------------------------------------------------
 
-    public RequestProcessor(ServerConfig server) {
-        this(server, new ProtocolHandler());
+    public RequestProcessor(java.util.List<ServerConfig> servers) {
+        this(servers, new ProtocolHandler());
     }
 
-    public RequestProcessor(ServerConfig server, ProtocolHandler handler) {
-        if (server  == null) throw new IllegalArgumentException("server must not be null");
+    public RequestProcessor(java.util.List<ServerConfig> servers, ProtocolHandler handler) {
+        if (servers  == null || servers.isEmpty()) throw new IllegalArgumentException("servers must not be empty");
         if (handler == null) throw new IllegalArgumentException("handler must not be null");
-        this.server  = server;
+        this.servers = servers;
         this.handler = handler;
     }
 
@@ -63,17 +63,57 @@ public class RequestProcessor {
      * The request already has its query string separated and headers stored —
      * no cleaning needed here. Returns a 400 error response if request is null.
      */
-    public Response handle(Request request) {
+    public Response handle(Request request, java.net.InetSocketAddress localAddress) {
         if (request == null) {
-            return buildErrorResponse(400, "Bad Request");
+            return buildErrorResponse(400, "Bad Request", getDefaultServer(localAddress));
         }
-        Response response = handler.handle(request, server);
+
+        ServerConfig selectedServer = findServer(request.getHeaders().get("host"), localAddress);
+
+        if (request.getBody().length() > selectedServer.getClientBodyLimitBytes()) {
+            return buildErrorResponse(413, "Payload Too Large", selectedServer);
+        }
+
+        Response response = handler.handle(request, selectedServer);
         if (response.getStatus() >= 400) {
-            String body = resolveErrorBody(response.getStatus(), response.getBody());
+            String body = resolveErrorBody(response.getStatus(), response.getBody(), selectedServer);
             response.setBody(body);
             response.setHeader("Content-Type", "text/html; charset=utf-8");
         }
         return response;
+    }
+
+    private ServerConfig findServer(String hostHeader, java.net.InetSocketAddress localAddress) {
+        ServerConfig defaultServer = null;
+        if (hostHeader != null) {
+            int colonIdx = hostHeader.indexOf(':');
+            String hostname = colonIdx > 0 ? hostHeader.substring(0, colonIdx) : hostHeader;
+            
+            for (ServerConfig server : servers) {
+                if (server.getPorts().contains(localAddress.getPort())) {
+                    if (defaultServer == null || server.isDefault()) {
+                        defaultServer = server;
+                    }
+                    if (server.getName().equals(hostname)) {
+                        return server;
+                    }
+                }
+            }
+        }
+        return defaultServer != null ? defaultServer : getDefaultServer(localAddress);
+    }
+    
+    private ServerConfig getDefaultServer(java.net.InetSocketAddress localAddress) {
+        ServerConfig fallback = servers.get(0);
+        for (ServerConfig server : servers) {
+            if (server.getPorts().contains(localAddress.getPort())) {
+                fallback = server;
+                if (server.isDefault()) {
+                    return server;
+                }
+            }
+        }
+        return fallback;
     }
 
     // =========================================================================
@@ -89,15 +129,15 @@ public class RequestProcessor {
      * @param status          HTTP status code, e.g. 404
      * @param fallbackMessage plain-text body used when no custom page exists
      */
-    public Response buildErrorResponse(int status, String fallbackMessage) {
-        String   body     = resolveErrorBody(status, fallbackMessage);
+    public Response buildErrorResponse(int status, String fallbackMessage, ServerConfig server) {
+        String   body     = resolveErrorBody(status, fallbackMessage, server);
         Response response = new Response(status, body);
         response.setHeader("Content-Type", "text/html; charset=utf-8");
         return response;
     }
 
     /** Load a custom error page from disk, or return the fallback text. */
-    private String resolveErrorBody(int status, String fallbackMessage) {
+    private String resolveErrorBody(int status, String fallbackMessage, ServerConfig server) {
         String pagePath = server.getErrorPages().get(status);
         if (pagePath == null || pagePath.isBlank()) {
             return fallbackMessage != null ? fallbackMessage : "";

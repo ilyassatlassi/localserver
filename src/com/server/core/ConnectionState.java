@@ -10,12 +10,18 @@ public class ConnectionState {
     private final Deque<ByteBuffer> pendingWrites;
     private boolean closeAfterWrite;
     private long lastAccessedAt;
+    private final java.net.InetSocketAddress localAddress;
 
-    public ConnectionState(int readBufferSize) {
+    public ConnectionState(int readBufferSize, java.net.InetSocketAddress localAddress) {
         this.readBuffer = ByteBuffer.allocate(readBufferSize);
         this.inbound = new StringBuilder();
         this.pendingWrites = new ArrayDeque<>();
         this.lastAccessedAt = System.currentTimeMillis();
+        this.localAddress = localAddress;
+    }
+
+    public java.net.InetSocketAddress getLocalAddress() {
+        return localAddress;
     }
 
     public ByteBuffer getReadBuffer() {

@@ -21,24 +21,29 @@ public class HttpEngine {
     private static final int READ_BUFFER_SIZE = 4096;
     private static final int SELECT_TIMEOUT_MS = 1000;
     private static final long CONNECTION_TIMEOUT_MS = 30_000;
-    private final ServerConfig server;
+    private final List<ServerConfig> servers;
     private final HttpRequestParser requestParser;
     private final RequestProcessor requestProcessor;
-    public HttpEngine(ServerConfig server) {
-        this.server = server;
-        this.requestParser = new HttpRequestParser(server.getClientBodyLimitBytes());
-        this.requestProcessor = new RequestProcessor(server);
+    public HttpEngine(List<ServerConfig> servers) {
+        this.servers = servers;
+        this.requestParser = new HttpRequestParser();
+        this.requestProcessor = new RequestProcessor(servers);
     }
 
     public void start() {
         try (Selector selector = Selector.open()) {
-            for (int port : server.getPorts()) {
-                ServerSocketChannel serverChannel = ServerSocketChannel.open();
-                serverChannel.configureBlocking(false);
-                serverChannel.bind(new InetSocketAddress(server.getHost(), port));
-                serverChannel.register(selector, SelectionKey.OP_ACCEPT);
-                System.out.println("[HttpEngine] Listening on " + server.getHost() + ":" + port);
-
+            Set<InetSocketAddress> boundAddresses = new java.util.HashSet<>();
+            for (ServerConfig server : servers) {
+                for (int port : server.getPorts()) {
+                    InetSocketAddress address = new InetSocketAddress(server.getHost(), port);
+                    if (boundAddresses.add(address)) {
+                        ServerSocketChannel serverChannel = ServerSocketChannel.open();
+                        serverChannel.configureBlocking(false);
+                        serverChannel.bind(address);
+                        serverChannel.register(selector, SelectionKey.OP_ACCEPT, address);
+                        System.out.println("[HttpEngine] Listening on " + address);
+                    }
+                }
             }
 
             while (true) {
@@ -74,12 +79,13 @@ public class HttpEngine {
 
     private void handleAccept(Selector selector, SelectionKey key) throws IOException {
         ServerSocketChannel serverChannel = (ServerSocketChannel) key.channel();
+        InetSocketAddress localAddress = (InetSocketAddress) key.attachment();
         SocketChannel client = serverChannel.accept();
         if (client == null) {
             return;
         }
         client.configureBlocking(false);
-        ConnectionState state = new ConnectionState(READ_BUFFER_SIZE);
+        ConnectionState state = new ConnectionState(READ_BUFFER_SIZE, localAddress);
         client.register(selector, SelectionKey.OP_READ, state);
     }
 
@@ -98,8 +104,10 @@ public class HttpEngine {
 
     private void processAllCompleteRequests(SelectionKey key,
             ConnectionState state) throws IOException {
+        long maxBodyBytesForPort = extractMaxBodyBytes(state.getLocalAddress());
+
         while (true) {
-            HttpRequestParser.ParseResult parsed = requestParser.parse(state.getInbound());
+            HttpRequestParser.ParseResult parsed = requestParser.parse(state.getInbound(), maxBodyBytesForPort);
 
             if (parsed == null)
                 break; // incomplete — wait for more data
@@ -107,7 +115,7 @@ public class HttpEngine {
             // ── Parser detected a protocol error (400 / 405 / 413) ───────────
             if (parsed.isError()) {
                 Response error = requestProcessor.buildErrorResponse(
-                        parsed.getErrorStatus(), parsed.getErrorMessage());
+                        parsed.getErrorStatus(), parsed.getErrorMessage(), getDefaultServer(state.getLocalAddress()));
                 state.enqueueWrite(requestProcessor.serialize(error, true));
                 state.markCloseAfterWrite();
                 break;
@@ -115,7 +123,7 @@ public class HttpEngine {
 
             // ── Normal request — dispatch and enqueue response ────────────────
             boolean closeConn = parsed.shouldClose();
-            Response response = requestProcessor.handle(parsed.getRequest());
+            Response response = requestProcessor.handle(parsed.getRequest(), state.getLocalAddress());
             state.enqueueWrite(requestProcessor.serialize(response, closeConn));
 
             if (closeConn) {
@@ -211,4 +219,26 @@ public class HttpEngine {
         key.cancel();
     }
 
+    private long extractMaxBodyBytes(InetSocketAddress localAddress) {
+        long max = 0;
+        for (ServerConfig srv : servers) {
+            if (srv.getPorts().contains(localAddress.getPort())) {
+                max = Math.max(max, srv.getClientBodyLimitBytes());
+            }
+        }
+        return max;
+    }
+
+    private ServerConfig getDefaultServer(InetSocketAddress localAddress) {
+        ServerConfig fallback = servers.get(0);
+        for (ServerConfig srv : servers) {
+            if (srv.getPorts().contains(localAddress.getPort())) {
+                fallback = srv;
+                if (srv.isDefault()) {
+                    return srv;
+                }
+            }
+        }
+        return fallback;
+    }
 }

@@ -1,0 +1,27 @@
+{
+  "servers": [
+    {
+      "name": "Server1",
+      "host": "0.0.0.0",
+      "ports": [8080],
+      "default": true,
+      "routes": [
+        {
+          "path": "/",
+          "root": "./www"
+        }
+      ]
+    },
+    {
+      "name": "Server2",
+      "host": "0.0.0.0",
+      "ports": [8080],
+      "routes": [
+        {
+          "path": "/",
+          "root": "./www"
+        }
+      ]
+    }
+  ]
+}

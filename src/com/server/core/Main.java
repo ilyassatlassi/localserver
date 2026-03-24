@@ -34,11 +34,9 @@ public class Main {
         if (servers == null || servers.isEmpty()) {
             throw new IllegalStateException("No servers configured");
         }
-        for (ServerConfig server : servers) {
-            Thread t = new Thread(() -> new HttpEngine(server).start());
-            t.setName("HttpEngine-" + server.getName());
-            t.setDaemon(false);
-            t.start();
-        }
+        Thread t = new Thread(() -> new HttpEngine(servers).start());
+        t.setName("HttpEngine-Main");
+        t.setDaemon(false);
+        t.start();
     }
 }

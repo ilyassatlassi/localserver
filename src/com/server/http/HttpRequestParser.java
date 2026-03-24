@@ -43,18 +43,11 @@ public class HttpRequestParser {
     // Fields
     // -------------------------------------------------------------------------
 
-    private final long maxBodyBytes;
-
     // -------------------------------------------------------------------------
     // Constructor
     // -------------------------------------------------------------------------
 
-    /**
-     * @param maxBodyBytes maximum allowed request body in bytes.
-     *                     Requests with a larger Content-Length receive 413.
-     */
-    public HttpRequestParser(long maxBodyBytes) {
-        this.maxBodyBytes = Math.max(maxBodyBytes, 0);
+    public HttpRequestParser() {
     }
 
     // =========================================================================
@@ -73,7 +66,8 @@ public class HttpRequestParser {
      * @return {@link ParseResult} on success or error condition,
      *         {@code null} if more data is needed
      */
-    public ParseResult parse(StringBuilder inbound) {
+    public ParseResult parse(StringBuilder inbound, long maxBodyBytes) {
+        maxBodyBytes = Math.max(maxBodyBytes, 0);
 
         // ── Guard ─────────────────────────────────────────────────────────────
         if (inbound == null || inbound.isEmpty())
@@ -143,7 +137,7 @@ public class HttpRequestParser {
         }
         if (isChunked) {
             return parseChunkedBody(
-                    inbound, headerEndIdx, method, path, queryString, headers);
+                    inbound, headerEndIdx, method, path, queryString, headers, maxBodyBytes);
         }
 
         // ── Step 9: Content-Length path ───────────────────────────────────────
@@ -213,7 +207,8 @@ public class HttpRequestParser {
             String method,
             String path,
             String queryString,
-            Map<String, String> headers) {
+            Map<String, String> headers,
+            long maxBodyBytes) {
         int bodyStart = headerEndIdx + HEADER_END.length();
         StringBuilder bodyBuilder = new StringBuilder();
         int pos = bodyStart;
