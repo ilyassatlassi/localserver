@@ -4,14 +4,6 @@ import java.util.Map;
 import java.util.UUID;
 import java.util.concurrent.ConcurrentHashMap;
 
-/**
- * Simple in-memory session manager.
- *
- * Each session is identified by a random UUID stored in the "session_id" cookie.
- * Session data is stored as a ConcurrentHashMap of key-value strings.
- *
- * Thread-safe: multiple NIO threads can access sessions concurrently.
- */
 public class SessionManager {
 
     private static final String COOKIE_NAME = "session_id";
@@ -19,14 +11,6 @@ public class SessionManager {
     private final ConcurrentHashMap<String, ConcurrentHashMap<String, String>> sessions =
             new ConcurrentHashMap<>();
 
-    /**
-     * Extract or create a session for the given request.
-     * If the request carries a valid session_id cookie, return its data.
-     * Otherwise, generate a new session ID.
-     *
-     * @param request the incoming HTTP request
-     * @return the session ID (either existing or newly created)
-     */
     public String getOrCreateSession(Request request) {
         String cookieHeader = request.getHeader("cookie");
         String sessionId = extractSessionId(cookieHeader);
@@ -79,10 +63,6 @@ public class SessionManager {
     public String getCookieName() {
         return COOKIE_NAME;
     }
-
-    // -------------------------------------------------------------------------
-    // Internal helpers
-    // -------------------------------------------------------------------------
 
     private String extractSessionId(String cookieHeader) {
         if (cookieHeader == null || cookieHeader.isEmpty()) {

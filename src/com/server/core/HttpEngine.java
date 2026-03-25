@@ -220,15 +220,7 @@ public class HttpEngine {
         }
     }
 
-    // =========================================================================
-    // TIMEOUT & CONNECTION MANAGEMENT
-    // =========================================================================
-
-    /**
-     * Close every client idle longer than CONNECTION_TIMEOUT_MS.
-     * Keys collected first to avoid ConcurrentModificationException when
-     * key.cancel() modifies selector.keys() during iteration.
-     */
+    // Manages timeouts and connections by closing idle clients after a defined period
     private void closeTimedOutConnections(Selector selector) {
         long now = System.currentTimeMillis();
         List<SelectionKey> toClose = new ArrayList<>();
