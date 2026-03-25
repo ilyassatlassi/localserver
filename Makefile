@@ -3,7 +3,9 @@ JAVA := java
 SRC_DIR := src
 OUT_DIR := out
 MAIN_CLASS := com.server.core.Main
-CONFIG := config.json
+# CONFIG := config.json
+
+ CONFIG := config-shared-port.json
 
 SOURCES := $(shell find $(SRC_DIR) -name "*.java")
 

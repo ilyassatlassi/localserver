@@ -61,9 +61,9 @@ public class HttpEngine {
                     serverChannel.register(selector, SelectionKey.OP_ACCEPT);
                     System.out.println("[HttpEngine] Listening on " + bindAddress.host + ":" + bindAddress.port);
                     boundCount++;
-                } catch (IOException ex) {
+                } catch (Exception ex) { // includes IOException and UnresolvedAddressException
                     System.err.println("[HttpEngine] Skipping bind " + bindAddress.host + ":" + bindAddress.port
-                            + " (" + ex.getMessage() + ")");
+                            + " (" + ex.getClass().getSimpleName() + (ex.getMessage() != null ? (": " + ex.getMessage()) : "") + ")");
                     try {
                         serverChannel.close();
                     } catch (IOException ignored) {
@@ -156,7 +156,7 @@ public class HttpEngine {
             ServerConfig targetServer = selectServer(request, localPort);
             RequestProcessor targetProcessor = processors.get(targetServer);
             Response response;
-            if (request.getBody().length() > targetServer.getClientBodyLimitBytes()) {
+            if (request.getBody().getBytes(StandardCharsets.ISO_8859_1).length > targetServer.getClientBodyLimitBytes()) {
                 response = targetProcessor.buildErrorResponse(413, "Payload Too Large");
                 closeConn = true;
             } else {
@@ -275,7 +275,7 @@ public class HttpEngine {
         String hostHeader = normalizeHostHeader(request.getHost());
         if (hostHeader != null) {
             for (ServerConfig cfg : candidates) {
-                if (hostHeader.equalsIgnoreCase(cfg.getName()) || hostHeader.equalsIgnoreCase(cfg.getHost())) {
+                if (hostHeader.equalsIgnoreCase(cfg.getName())) {
                     return cfg;
                 }
             }

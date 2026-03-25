@@ -1,0 +1,52 @@
+{
+  "servers": [
+    {
+      "name": "site-a.local",
+      "host": "0.0.0.0",
+      "ports": [8080],
+      "default": true,
+      "clientBodyLimitBytes": 1048576,
+      "errorPages": {
+        "400": "error_pages/400.html",
+        "403": "error_pages/403.html",
+        "404": "error_pages/404.html",
+        "405": "error_pages/405.html",
+        "413": "error_pages/413.html",
+        "500": "error_pages/500.html"
+      },
+      "routes": [
+        {
+          "path": "/",
+          "methods": ["GET"],
+          "root": "www_site_a",
+          "index": "index.html",
+          "autoIndex": false
+        }
+      ]
+    },
+    {
+      "name": "site-b.local",
+      "host": "0.0.0.0",
+      "ports": [8080],
+      "default": false,
+      "clientBodyLimitBytes": 1048576,
+      "errorPages": {
+        "400": "error_pages/400.html",
+        "403": "error_pages/403.html",
+        "404": "error_pages/404.html",
+        "405": "error_pages/405.html",
+        "413": "error_pages/413.html",
+        "500": "error_pages/500.html"
+      },
+      "routes": [
+        {
+          "path": "/",
+          "methods": ["GET"],
+          "root": "www_site_b",
+          "index": "index.html",
+          "autoIndex": false
+        }
+      ]
+    }
+  ]
+}
